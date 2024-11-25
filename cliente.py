@@ -5,7 +5,7 @@ import struct
 # Configurações gerais
 SERVER_HOST = '127.0.0.1'
 SERVER_PORT = 5000
-MAX_WINDOW_SIZE = 5
+MAX_WINDOW_SIZE = 20
 TIMEOUT = 2
 
 # Flags
@@ -94,10 +94,13 @@ class Client:
                         self.congestion_window = max(1, self.congestion_window // 2)
                         self.resend_packet(nack_num)
                 else:
-                    print("[CLIENT] Erro de checksum no ACK recebido.")
+                    # Tratamento para ACK corrompido
+                    print("[CLIENT] Erro de checksum no ACK recebido. Retransmitindo último pacote.")
+                    self.resend_packet(self.base)
             except OSError as e:
                 print(f"[CLIENT] Erro ao receber pacote: {e}")
                 break
+
 
     def menu(self):
         while True:

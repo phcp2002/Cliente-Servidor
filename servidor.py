@@ -7,7 +7,7 @@ SERVER_HOST = '127.0.0.1'
 SERVER_PORT = 5000
 
 # Protocolo
-MAX_WINDOW_SIZE = 5
+MAX_WINDOW_SIZE = 20
 TIMEOUT = 2  # Em segundos
 
 # Flags
@@ -53,13 +53,15 @@ class Server:
         flags = FLAG_ACK if not negative else FLAG_NACK
         packet = create_packet(0, ack_num, self.window_size, flags, b'')
         if self.simulate_ack_error:
+            # Introduzindo erro no checksum do ACK
             packet = bytearray(packet)
-            packet[-1] ^= 0xFF  # Introduz erro no checksum
+            packet[-1] ^= 0xFF  # Altera o checksum para simular erro
             packet = bytes(packet)
-            print(f"[Erro Simulado] Enviando ACK corrompido para o pacote {ack_num}")
+            print(f"[SERVIDOR] [Erro Simulado] Enviando ACK corrompido para o pacote {ack_num}")
         else:
-            print(f"Enviando {'NACK' if negative else 'ACK'} para o pacote {ack_num}")
+            print(f"[SERVIDOR] Enviando {'NACK' if negative else 'ACK'} para o pacote {ack_num}")
         self.socket.sendto(packet, client_address)
+
 
     def handle_packet(self, packet, client_address):
         parsed = parse_packet(packet)
@@ -108,7 +110,8 @@ class Server:
     def toggle_ack_error(self):
         self.simulate_ack_error = not self.simulate_ack_error
         status = "ativado" if self.simulate_ack_error else "desativado"
-        print(f"Simulação de erro em ACK {status}.")
+        print(f"[SERVIDOR] Simulação de erro em ACK {status}.")
+
 
     def configure_packet_loss(self):
         print("Digite os números de sequência dos pacotes a serem ignorados (separados por espaço):")
