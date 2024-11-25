@@ -26,6 +26,8 @@ def create_packet(seq_num, ack_num, window_size, flags, data):
     return header + struct.pack('!B', checksum) + data
 
 def parse_packet(packet):
+    if len(packet) < 8:
+        return None 
     header = packet[:7]
     seq_num, ack_num, window_size, flags = struct.unpack('!HHHB', header)
     checksum = packet[7]
@@ -46,22 +48,25 @@ class Client:
         self.timers = {}
         self.buffer = {}
         self.protocol = 'sr'
+        self.lock = threading.Lock()
 
     def send_packet(self, data, simulate_error=False):
-        if self.next_seq_num < self.base + self.window_size:
-            seq_num = self.next_seq_num
-            flags = FLAG_DATA
-            packet = create_packet(seq_num, 0, self.window_size, flags, data)
-            if simulate_error:
-                packet = bytearray(packet)
-                packet[-1] ^= 0xFF
-                packet = bytes(packet)
-            self.socket.sendto(packet, self.server_address)
-            print(f"[CLIENT] Enviando pacote {seq_num}: {data.decode()}")
-            self.buffer[seq_num] = packet
-            self.next_seq_num += 1
-        else:
-            print("[CLIENT] Janela cheia. Aguardando...")
+        with self.lock:
+            window = min(self.window_size, self.congestion_window)
+            if self.next_seq_num < self.base + window:
+                seq_num = self.next_seq_num
+                flags = FLAG_DATA
+                packet = create_packet(seq_num, 0, self.window_size, flags, data)
+                if simulate_error:
+                    packet = bytearray(packet)
+                    packet[-1] ^= 0xFF
+                    packet = bytes(packet)
+                self.socket.sendto(packet, self.server_address)
+                print(f"[CLIENT] Enviando pacote {seq_num}: {data.decode('utf-8', errors='ignore')}")
+                self.buffer[seq_num] = packet
+                self.next_seq_num += 1
+            else:
+                print("[CLIENT] Janela cheia. Aguardando...")
 
     def send_config(self):
         flags = FLAG_CONFIG
@@ -84,22 +89,28 @@ class Client:
                     if parsed['flags'] & FLAG_ACK:
                         ack_num = parsed['ack_num']
                         print(f"[CLIENT] ACK recebido: {ack_num}")
-                        if ack_num >= self.base:
-                            self.base = ack_num + 1
-                            self.congestion_window += 1
-                            print(f"[CLIENT] Janela de congestionamento aumentada para: {self.congestion_window}")
+                        self.window_size = parsed['window_size']
+                        print(f"[CLIENT] Janela de recepção do servidor atualizada para: {self.window_size}")
+                        with self.lock:
+                            if ack_num >= self.base:
+                                self.base = ack_num + 1
+                                self.congestion_window += 1
+                                print(f"[CLIENT] Janela de congestionamento aumentada para: {self.congestion_window}")
                     elif parsed['flags'] & FLAG_NACK:
                         nack_num = parsed['ack_num']
                         print(f"[CLIENT] NACK recebido: {nack_num}")
-                        self.congestion_window = max(1, self.congestion_window // 2)
-                        self.resend_packet(nack_num)
+                        with self.lock:
+                            self.congestion_window = max(1, self.congestion_window // 2)
+                            print(f"[CLIENT] Janela de congestionamento reduzida para: {self.congestion_window}")
+                            self.resend_packet(nack_num)
+                    else:
+                        print("Pacote recebido com flags desconhecidas.")
                 else:
                     print("[CLIENT] Erro de checksum no ACK recebido. Retransmitindo último pacote.")
                     self.resend_packet(self.base)
             except OSError as e:
                 print(f"[CLIENT] Erro ao receber pacote: {e}")
                 break
-
 
     def menu(self):
         while True:
@@ -131,6 +142,7 @@ class Client:
                     print("[CLIENT] Protocolo inválido.")
             elif choice == '5':
                 print(f"Janela de congestionamento atual: {self.congestion_window}")
+                print(f"Janela de recepção do servidor: {self.window_size}")
             elif choice == '6':
                 print("[CLIENT] Encerrando cliente.")
                 break
