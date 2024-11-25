@@ -28,6 +28,8 @@ def create_packet(seq_num, ack_num, window_size, flags, data):
     return header + struct.pack('!B', checksum) + data
 
 def parse_packet(packet):
+    if len(packet) < 8:
+        return None
     header = packet[:7]
     seq_num, ack_num, window_size, flags = struct.unpack('!HHHB', header)
     checksum = packet[7]
@@ -53,7 +55,6 @@ class Server:
         flags = FLAG_ACK if not negative else FLAG_NACK
         packet = create_packet(0, ack_num, self.window_size, flags, b'')
         if self.simulate_ack_error:
-           
             packet = bytearray(packet)
             packet[-1] ^= 0xFF
             packet = bytes(packet)
@@ -61,7 +62,6 @@ class Server:
         else:
             print(f"[SERVIDOR] Enviando {'NACK' if negative else 'ACK'} para o pacote {ack_num}")
         self.socket.sendto(packet, client_address)
-
 
     def handle_packet(self, packet, client_address):
         parsed = parse_packet(packet)
@@ -86,7 +86,7 @@ class Server:
 
             if self.protocol == 'sr':
                 if seq_num == self.expected_seq_num:
-                    print(f"[SR] Processando pacote {seq_num}: {data.decode()}")
+                    print(f"[SR] Processando pacote {seq_num}: {data.decode('utf-8', errors='ignore')}")
                     self.expected_seq_num += 1
                     self.send_ack(client_address, seq_num)
                 elif seq_num > self.expected_seq_num:
@@ -98,7 +98,7 @@ class Server:
 
             elif self.protocol == 'gbn':
                 if seq_num == self.expected_seq_num:
-                    print(f"[GBN] Processando pacote {seq_num}: {data.decode()}")
+                    print(f"[GBN] Processando pacote {seq_num}: {data.decode('utf-8', errors='ignore')}")
                     self.expected_seq_num += 1
                     self.send_ack(client_address, seq_num)
                 else:
@@ -111,7 +111,6 @@ class Server:
         self.simulate_ack_error = not self.simulate_ack_error
         status = "ativado" if self.simulate_ack_error else "desativado"
         print(f"[SERVIDOR] Simulação de erro em ACK {status}.")
-
 
     def configure_packet_loss(self):
         print("Digite os números de sequência dos pacotes a serem ignorados (separados por espaço):")
@@ -128,8 +127,9 @@ class Server:
             print("1. Ativar/Desativar erro de integridade em ACKs")
             print("2. Configurar pacotes para simular perdas")
             print("3. Alterar protocolo (Selective Repeat / Go-Back-N)")
-            print("4. Ver janela de recepção")
-            print("5. Sair")
+            print("4. Alterar tamanho da janela de recepção")
+            print("5. Ver janela de recepção")
+            print("6. Sair")
             choice = input("Escolha uma opção: ").strip()
             if choice == '1':
                 self.toggle_ack_error()
@@ -143,8 +143,19 @@ class Server:
                 else:
                     print("Protocolo inválido.")
             elif choice == '4':
-                print(f"Janela de recepção atual: {self.window_size}")
+                new_window_size = input("Digite o novo tamanho da janela de recepção: ").strip()
+                try:
+                    new_window_size = int(new_window_size)
+                    if new_window_size > 0:
+                        self.window_size = new_window_size
+                        print(f"Janela de recepção alterada para: {self.window_size}")
+                    else:
+                        print("O tamanho da janela deve ser maior que zero.")
+                except ValueError:
+                    print("Entrada inválida. Por favor, insira um número inteiro.")
             elif choice == '5':
+                print(f"Janela de recepção atual: {self.window_size}")
+            elif choice == '6':
                 print("Encerrando o servidor.")
                 break
             else:
