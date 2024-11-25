@@ -5,7 +5,7 @@ import struct
 # Configurações gerais
 SERVER_HOST = '127.0.0.1'
 SERVER_PORT = 5000
-MAX_WINDOW_SIZE = 20
+MAX_WINDOW_SIZE = 3
 TIMEOUT = 2
 
 # Flags
@@ -94,13 +94,25 @@ class Client:
                         self.congestion_window = max(1, self.congestion_window // 2)
                         self.resend_packet(nack_num)
                 else:
-                    # Tratamento para ACK corrompido
                     print("[CLIENT] Erro de checksum no ACK recebido. Retransmitindo último pacote.")
                     self.resend_packet(self.base)
             except OSError as e:
                 print(f"[CLIENT] Erro ao receber pacote: {e}")
                 break
 
+    def check_integrity(self):
+        print("\n--- VERIFICAÇÃO DE INTEGRIDADE ---")
+        data = input("Digite a mensagem a ser enviada para verificação de integridade: ").encode()
+        seq_num = self.next_seq_num
+        flags = FLAG_DATA
+        packet = create_packet(seq_num, 0, self.window_size, flags, data)
+        print(f"[CLIENT] Pacote criado com checksum: {packet[-1]}")
+        calc_checksum = calculate_checksum(packet[:-1])
+        print(f"[CLIENT] Checksum calculado: {calc_checksum}, Checksum no pacote: {packet[-1]}")
+        if calc_checksum == packet[-1]:
+            print("[CLIENT] A integridade do pacote está correta.")
+        else:
+            print("[CLIENT] A integridade do pacote está corrompida.")
 
     def menu(self):
         while True:
@@ -110,7 +122,9 @@ class Client:
             print("3. Enviar pacote com erro de checksum")
             print("4. Configurar protocolo (Selective Repeat / Go-Back-N)")
             print("5. Exibir status da janela de congestionamento")
-            print("6. Sair")
+            print("6. Alterar o tamanho da janela de recepção")
+            print("7. Verificar integridade do pacote")
+            print("8. Sair")
             choice = input("Escolha uma opção: ").strip()
             if choice == '1':
                 data = input("Digite a mensagem a ser enviada: ").encode()
@@ -133,6 +147,15 @@ class Client:
             elif choice == '5':
                 print(f"Janela de congestionamento atual: {self.congestion_window}")
             elif choice == '6':
+                new_window_size = int(input("Digite o novo tamanho da janela de recepção: ").strip())
+                if new_window_size > 0:
+                    self.window_size = new_window_size
+                    print(f"Janela de recepção alterada para: {self.window_size}")
+                else:
+                    print("O tamanho da janela deve ser maior que zero.")
+            elif choice == '7':
+                self.check_integrity()
+            elif choice == '8':
                 print("[CLIENT] Encerrando cliente.")
                 break
             else:

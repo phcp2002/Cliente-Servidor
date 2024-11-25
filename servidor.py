@@ -128,8 +128,7 @@ class Server:
             print("1. Ativar/Desativar erro de integridade em ACKs")
             print("2. Configurar pacotes para simular perdas")
             print("3. Alterar protocolo (Selective Repeat / Go-Back-N)")
-            print("4. Ver janela de recepção")
-            print("5. Sair")
+            print("4. Sair")
             choice = input("Escolha uma opção: ").strip()
             if choice == '1':
                 self.toggle_ack_error()
@@ -142,9 +141,9 @@ class Server:
                     print(f"Protocolo alterado para: {protocol.upper()}")
                 else:
                     print("Protocolo inválido.")
-            elif choice == '4':
+            elif choice == '10':
                 print(f"Janela de recepção atual: {self.window_size}")
-            elif choice == '5':
+            elif choice == '4':
                 print("Encerrando o servidor.")
                 break
             else:
