@@ -8,7 +8,7 @@ SERVER_PORT = 5000
 
 # Protocolo
 MAX_WINDOW_SIZE = 20
-TIMEOUT = 2  # Em segundos
+TIMEOUT = 2
 
 # Flags
 FLAG_DATA = 0b0001
@@ -45,17 +45,17 @@ class Server:
         self.socket.bind(self.server_address)
         self.expected_seq_num = 0
         self.window_size = MAX_WINDOW_SIZE
-        self.protocol = 'sr'  # Protocolo padrão (Selective Repeat)
+        self.protocol = 'sr'
         self.simulate_ack_error = False
-        self.simulate_packet_loss = set()  # Conjunto de pacotes a serem perdidos
+        self.simulate_packet_loss = set() 
 
     def send_ack(self, client_address, ack_num, negative=False):
         flags = FLAG_ACK if not negative else FLAG_NACK
         packet = create_packet(0, ack_num, self.window_size, flags, b'')
         if self.simulate_ack_error:
-            # Introduzindo erro no checksum do ACK
+           
             packet = bytearray(packet)
-            packet[-1] ^= 0xFF  # Altera o checksum para simular erro
+            packet[-1] ^= 0xFF
             packet = bytes(packet)
             print(f"[SERVIDOR] [Erro Simulado] Enviando ACK corrompido para o pacote {ack_num}")
         else:
