@@ -94,7 +94,6 @@ class Client:
                         self.congestion_window = max(1, self.congestion_window // 2)
                         self.resend_packet(nack_num)
                 else:
-                    # Tratamento para ACK corrompido
                     print("[CLIENT] Erro de checksum no ACK recebido. Retransmitindo último pacote.")
                     self.resend_packet(self.base)
             except OSError as e:
