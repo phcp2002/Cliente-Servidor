@@ -1,67 +1,145 @@
 import socket
-import time
+import threading
+import struct
 
-# Configurações do cliente
-HOST = '127.0.0.1'
-PORT = 5000
+# Configurações gerais
+SERVER_HOST = '127.0.0.1'
+SERVER_PORT = 5000
+MAX_WINDOW_SIZE = 5
+TIMEOUT = 2
 
-# Função para criar uma mensagem
-def criar_mensagem(tipo, conteudo):
-    return f"{tipo}:{conteudo}"
+# Flags
+FLAG_DATA = 0b0001
+FLAG_ACK = 0b0010
+FLAG_NACK = 0b0100
+FLAG_CONFIG = 0b1000
 
-# Função para enviar uma mensagem única
-def enviar_mensagem_unica(client):
-    conteudo = input("Digite a mensagem para enviar: ")
-    mensagem = criar_mensagem("DADOS", conteudo)
-    client.sendall(mensagem.encode())
-    
-    # Recebe e exibe a resposta do servidor
-    data = client.recv(1024)
-    print(f"Resposta do servidor: {data.decode()}")
+def calculate_checksum(data):
+    checksum = 0
+    for byte in data:
+        checksum ^= byte
+    return checksum
 
-# Função para enviar uma rajada de mensagens
-def enviar_rajada_de_mensagens(client):
-    quantidade = int(input("Quantas mensagens deseja enviar em rajada? "))
-    intervalo = float(input("Intervalo entre mensagens (em segundos): "))
+def create_packet(seq_num, ack_num, window_size, flags, data):
+    header = struct.pack('!HHHB', seq_num, ack_num, window_size, flags)
+    checksum = calculate_checksum(header + data)
+    return header + struct.pack('!B', checksum) + data
 
-    for i in range(quantidade):
-        conteudo = f"Mensagem {i + 1} da rajada"
-        mensagem = criar_mensagem("DADOS", conteudo)
-        client.sendall(mensagem.encode())
-        
-        # Recebe e exibe a resposta do servidor
-        data = client.recv(1024)
-        print(f"Resposta do servidor para '{conteudo}': {data.decode()}")
+def parse_packet(packet):
+    header = packet[:7]
+    seq_num, ack_num, window_size, flags = struct.unpack('!HHHB', header)
+    checksum = packet[7]
+    data = packet[8:]
+    calc_checksum = calculate_checksum(header + data)
+    if checksum != calc_checksum:
+        return None
+    return {'seq_num': seq_num, 'ack_num': ack_num, 'window_size': window_size, 'flags': flags, 'data': data}
 
-        # Aguarda o intervalo antes de enviar a próxima mensagem
-        time.sleep(intervalo)
+class Client:
+    def __init__(self, host, port):
+        self.server_address = (host, port)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.base = 0
+        self.next_seq_num = 0
+        self.window_size = MAX_WINDOW_SIZE
+        self.congestion_window = 1
+        self.timers = {}
+        self.buffer = {}
+        self.protocol = 'sr'
 
-# Função principal do cliente
-def main():
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect((HOST, PORT))
-    print(f"Conectado ao servidor {HOST}:{PORT}")
-
-    while True:
-        print("\nMenu:")
-        print("1. Enviar uma única mensagem")
-        print("2. Enviar uma rajada de mensagens")
-        print("3. Sair")
-        opcao = input("Escolha uma opção: ")
-
-        if opcao == '1':
-            enviar_mensagem_unica(client)
-        elif opcao == '2':
-            enviar_rajada_de_mensagens(client)
-        elif opcao == '3':
-            mensagem = criar_mensagem("SAIR", "")
-            client.sendall(mensagem.encode())
-            break
+    def send_packet(self, data, simulate_error=False):
+        if self.next_seq_num < self.base + self.window_size:
+            seq_num = self.next_seq_num
+            flags = FLAG_DATA
+            packet = create_packet(seq_num, 0, self.window_size, flags, data)
+            if simulate_error:
+                packet = bytearray(packet)
+                packet[-1] ^= 0xFF
+                packet = bytes(packet)
+            self.socket.sendto(packet, self.server_address)
+            print(f"[CLIENT] Enviando pacote {seq_num}: {data.decode()}")
+            self.buffer[seq_num] = packet
+            self.next_seq_num += 1
         else:
-            print("Opção inválida. Tente novamente.")
+            print("[CLIENT] Janela cheia. Aguardando...")
 
-    client.close()
-    print("Conexão encerrada.")
+    def send_config(self):
+        flags = FLAG_CONFIG
+        data = self.protocol.encode()
+        packet = create_packet(0, 0, self.window_size, flags, data)
+        self.socket.sendto(packet, self.server_address)
+
+    def resend_packet(self, seq_num):
+        packet = self.buffer.get(seq_num)
+        if packet:
+            print(f"[CLIENT] Reenviando pacote {seq_num}")
+            self.socket.sendto(packet, self.server_address)
+
+    def receive_ack(self):
+        while True:
+            try:
+                packet, _ = self.socket.recvfrom(1024)
+                parsed = parse_packet(packet)
+                if parsed:
+                    if parsed['flags'] & FLAG_ACK:
+                        ack_num = parsed['ack_num']
+                        print(f"[CLIENT] ACK recebido: {ack_num}")
+                        if ack_num >= self.base:
+                            self.base = ack_num + 1
+                            self.congestion_window += 1
+                            print(f"[CLIENT] Janela de congestionamento aumentada para: {self.congestion_window}")
+                    elif parsed['flags'] & FLAG_NACK:
+                        nack_num = parsed['ack_num']
+                        print(f"[CLIENT] NACK recebido: {nack_num}")
+                        self.congestion_window = max(1, self.congestion_window // 2)
+                        self.resend_packet(nack_num)
+                else:
+                    print("[CLIENT] Erro de checksum no ACK recebido.")
+            except OSError as e:
+                print(f"[CLIENT] Erro ao receber pacote: {e}")
+                break
+
+    def menu(self):
+        while True:
+            print("\n--- MENU DO CLIENTE ---")
+            print("1. Enviar uma única mensagem")
+            print("2. Enviar várias mensagens em sequência")
+            print("3. Enviar pacote com erro de checksum")
+            print("4. Configurar protocolo (Selective Repeat / Go-Back-N)")
+            print("5. Exibir status da janela de congestionamento")
+            print("6. Sair")
+            choice = input("Escolha uma opção: ").strip()
+            if choice == '1':
+                data = input("Digite a mensagem a ser enviada: ").encode()
+                self.send_packet(data)
+            elif choice == '2':
+                num_messages = int(input("Número de mensagens a enviar: "))
+                for _ in range(num_messages):
+                    message = input("Digite a mensagem: ").encode()
+                    self.send_packet(message)
+            elif choice == '3':
+                data = input("Digite a mensagem com erro: ").encode()
+                self.send_packet(data, simulate_error=True)
+            elif choice == '4':
+                protocol = input("Escolha o protocolo (gbn/sr): ").strip().lower()
+                if protocol in ['gbn', 'sr']:
+                    self.protocol = protocol
+                    self.send_config()
+                else:
+                    print("[CLIENT] Protocolo inválido.")
+            elif choice == '5':
+                print(f"Janela de congestionamento atual: {self.congestion_window}")
+            elif choice == '6':
+                print("[CLIENT] Encerrando cliente.")
+                break
+            else:
+                print("Opção inválida.")
+
+    def run(self):
+        threading.Thread(target=self.receive_ack, daemon=True).start()
+        print("[CLIENT] Cliente em execução. Use o menu para interagir.")
+        self.menu()
 
 if __name__ == "__main__":
-    main()
+    client = Client(SERVER_HOST, SERVER_PORT)
+    client.run()
