@@ -7,6 +7,7 @@ SERVER_HOST = '127.0.0.1'
 SERVER_PORT = 5000
 MAX_WINDOW_SIZE = 8
 TIMEOUT = 2
+MAX_MESSAGE_SIZE = 100  # Tamanho máximo da mensagem em caracteres
 
 # Flags
 FLAG_DATA = 0b0001
@@ -48,6 +49,11 @@ class Client:
         self.protocol = 'sr'  # Default protocol
 
     def send_packet(self, data, simulate_error=False):
+        # Limita o tamanho da mensagem antes de enviá-la
+        if len(data) > MAX_MESSAGE_SIZE:
+            print(f"[CLIENT] A mensagem excede o limite de {MAX_MESSAGE_SIZE} caracteres. Não será enviada.")
+            return
+        
         if self.next_seq_num < self.base + self.window_size:
             seq_num = self.next_seq_num
             flags = FLAG_DATA
