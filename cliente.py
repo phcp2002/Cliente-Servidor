@@ -5,7 +5,7 @@ import struct
 # Configurações gerais
 SERVER_HOST = '127.0.0.1'
 SERVER_PORT = 5000
-MAX_WINDOW_SIZE = 3
+MAX_WINDOW_SIZE = 8
 TIMEOUT = 2
 
 # Flags
@@ -14,18 +14,18 @@ FLAG_ACK = 0b0010
 FLAG_NACK = 0b0100
 FLAG_CONFIG = 0b1000
 
-def calculate_checksum(data):
+def calculate_checksum(data):  # Calcula o checksum XOR para verificação de integridade.
     checksum = 0
     for byte in data:
         checksum ^= byte
     return checksum
 
-def create_packet(seq_num, ack_num, window_size, flags, data):
+def create_packet(seq_num, ack_num, window_size, flags, data):  # Cria um pacote com cabeçalho, checksum e dados.
     header = struct.pack('!HHHB', seq_num, ack_num, window_size, flags)
     checksum = calculate_checksum(header + data)
     return header + struct.pack('!B', checksum) + data
 
-def parse_packet(packet):
+def parse_packet(packet):  # Analisa um pacote recebido e verifica a integridade do checksum.
     header = packet[:7]
     seq_num, ack_num, window_size, flags = struct.unpack('!HHHB', header)
     checksum = packet[7]
@@ -45,7 +45,7 @@ class Client:
         self.congestion_window = 1
         self.timers = {}
         self.buffer = {}
-        self.protocol = 'sr'
+        self.protocol = 'sr'  # Default protocol
 
     def send_packet(self, data, simulate_error=False):
         if self.next_seq_num < self.base + self.window_size:
@@ -54,7 +54,7 @@ class Client:
             packet = create_packet(seq_num, 0, self.window_size, flags, data)
             if simulate_error:
                 packet = bytearray(packet)
-                packet[-1] ^= 0xFF
+                packet[-1] ^= 0xFF  # Simula erro no checksum
                 packet = bytes(packet)
             self.socket.sendto(packet, self.server_address)
             print(f"[CLIENT] Enviando pacote {seq_num}: {data.decode()}")
@@ -69,13 +69,13 @@ class Client:
         packet = create_packet(0, 0, self.window_size, flags, data)
         self.socket.sendto(packet, self.server_address)
 
-    def resend_packet(self, seq_num):
+    def resend_packet(self, seq_num):  # Reenvia um pacote específico a partir do buffer.
         packet = self.buffer.get(seq_num)
         if packet:
             print(f"[CLIENT] Reenviando pacote {seq_num}")
             self.socket.sendto(packet, self.server_address)
 
-    def receive_ack(self):
+    def receive_ack(self):  # Escuta e processa pacotes de ACK ou NACK recebidos do servidor.
         while True:
             try:
                 packet, _ = self.socket.recvfrom(1024)
@@ -100,7 +100,7 @@ class Client:
                 print(f"[CLIENT] Erro ao receber pacote: {e}")
                 break
 
-    def check_integrity(self):
+    def check_integrity(self):  # Verifica a integridade de um pacote com base no checksum.
         print("\n--- VERIFICAÇÃO DE INTEGRIDADE ---")
         data = input("Digite a mensagem a ser enviada para verificação de integridade: ").encode()
         seq_num = self.next_seq_num
@@ -114,14 +114,13 @@ class Client:
         else:
             print("[CLIENT] A integridade do pacote está corrompida.")
 
-    def menu(self):
+    def menu(self):  # Exibe o menu interativo para o cliente selecionar opções.
         while True:
             print("\n--- MENU DO CLIENTE ---")
             print("1. Enviar uma única mensagem")
             print("2. Enviar várias mensagens em sequência")
             print("3. Enviar pacote com erro de checksum")
             print("4. Configurar protocolo (Selective Repeat / Go-Back-N)")
-            print("5. Exibir status da janela de congestionamento")
             print("6. Alterar o tamanho da janela de recepção")
             print("7. Verificar integridade do pacote")
             print("8. Sair")
@@ -161,7 +160,7 @@ class Client:
             else:
                 print("Opção inválida.")
 
-    def run(self):
+    def run(self):  # Inicia o cliente e a thread para escutar ACKs/NACKs.
         threading.Thread(target=self.receive_ack, daemon=True).start()
         print("[CLIENT] Cliente em execução. Use o menu para interagir.")
         self.menu()
